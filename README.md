@@ -1,371 +1,392 @@
-````markdown
-# NBCCo Automated Rating Handler
+# Automated Rating Handler for NBCCo
 
-## Overview
-
-This is a production-ready automated rating system for the NBCCo platform. When a job is completed, the system:
-
-1. **Sends SMS Prompt**: "Reply 1 to 5 to rate this operator"
-2. **Captures Rating**: Validates inbound 1-5 integer response
-3. **Calculates Moving Average**: Updates operator's average rating in real-time
-4. **Auto-Bans Low Performers**: If rating < 3.0 AND transactions > 2:
-   - Sets account status to "Banned"
-   - Blocks operator from future matching queues
-   - Notifies operator via SMS
+A production-ready system for automatically collecting operator ratings via SMS and managing quality assurance.
 
 ## Features
 
-✅ Automated SMS workflow for job rating  
-✅ Real-time moving average calculations  
-✅ Conditional auto-ban logic for low performers  
-✅ Operator performance analytics & reporting  
-✅ Production-ready with comprehensive error handling  
-✅ SQLite database with schema & indices  
-✅ Twilio integration + mock service for testing  
-✅ Flask webhook server for inbound SMS  
-✅ Comprehensive logging & monitoring  
+✅ **Automated SMS Workflows**
+- Automatically sends rating prompts when jobs complete
+- Captures 1-5 star ratings via inbound SMS
+- Sends confirmation messages to users
 
-## Architecture
+✅ **Performance Tracking**
+- Calculates moving average ratings
+- Tracks operator statistics (min, max, std deviation)
+- Identifies top performers and at-risk operators
+
+✅ **Quality Assurance**
+- Auto-bans operators with average rating < 3.0 across 2+ transactions
+- Blocks banned operators from future job matching
+- Notifies operators of ban status
+
+✅ **Analytics & Reporting**
+- Real-time performance dashboards
+- Comprehensive operator statistics
+- Historical rating trends
+
+## System Architecture
 
 ```
-┌─────────────────────────────────────────────────────┐
-│ Your Application (NBCCo)                             │
-└──────────────────┬──────────────────────────────────┘
-                   │ Job Completion Event
-                   ▼
-┌──────────────────────────────────────────────────────┐
-│ job_completion_trigger.py (Event Handler)            │
-└──────────────────┬──────────────────────────────────┘
-                   │
-                   ▼
-┌──────────────────────────────────────────────────────┐
-│ rating_handler.py (Orchestration)                    │
-├─ Sends SMS prompt ──────┐                            │
-├─ Creates rating request │                            │
-└─ Monitors for response  │                            │
-                          ▼
-┌─────────────────────────────────────────────────────┐
-│ sms_service.py (Twilio)                             │
-│ Sends: "Reply 1 to 5 to rate this operator"        │
-└─────────────────────────────────────────────────────┘
-                          │
-         User replies (1-5) via SMS
-                          │
-                          ▼
-┌──────────────────────────────────────────────────────┐
-│ sms_webhook.py (Flask Server - /sms/webhook)        │
-│ Receives inbound SMS                                │
-└──────────────────┬──────────────────────────────────┘
-                   │
-                   ▼
-┌──────────────────────────────────────────────────────┐
-│ rating_handler.py (Process Rating Reply)            │
-├─ Validates rating (1-5)                             │
-├─ Records in database                                │
-├─ Calculates new average                             │
-├─ Checks ban conditions                              │
-└─────────────────┬────────────────────────────────────┘
-                  │
-    ┌─────────────┴─────────────┐
-    │                           │
-    ▼                           ▼
-Rating < 3.0 &            Normal Case
-Transactions > 2          │
-    │                     │
-    ▼                     ▼
-┌─────────────────┐   ┌──────────────────┐
-│ BAN OPERATOR    │   │ Update Average   │
-│ - Status        │   │ Send Confirmation│
-│ - Block Queue   │   │ SMS              │
-│ - Notify        │   │                  │
-└─────────────────┘   └──────────────────┘
-    │                     │
-    └─────────────┬───────┘
-                  ▼
-         ┌─────────────────────┐
-         │ database.py         │
-         │ SQLite Persistence  │
-         └─────────────────────┘
+Job Completion Event
+        |
+        v
+[RatingHandler] --> [Database] (Stores job, request, operator data)
+        |
+        v
+[SMSService] --> [Twilio API] (Sends rating prompt SMS)
+        |
+        v
+User Replies 1-5
+        |
+        v
+[SMSWebhook] <-- [Twilio API] (Receives inbound SMS)
+        |
+        v
+[RatingHandler] --> [Database] (Stores rating, updates average)
+        |
+        v
+[Auto-Ban Logic] --> [Database] (Updates operator status if needed)
 ```
 
 ## Installation
 
-### 1. Clone/Download Files
+### Prerequisites
+- Python 3.8+
+- Twilio account (or use mock service for testing)
+- SQLite3
 
-```bash
-# Files to include:
-- rating_handler.py
-- database.py
-- rating_calculator.py
-- sms_service.py
-- sms_webhook.py
-- job_completion_trigger.py
-- requirements.txt
-- .env.example
-```
+### Setup
 
-### 2. Install Dependencies
+1. **Clone or download the project files**
 
-```bash
-pip install -r requirements.txt
-```
+2. **Install dependencies**
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-### 3. Configure Environment
+3. **Configure environment**
+   ```bash
+   cp .env.example .env
+   ```
+   
+   Edit `.env` and add your Twilio credentials:
+   ```
+   TWILIO_ACCOUNT_SID=your_account_sid
+   TWILIO_AUTH_TOKEN=your_auth_token
+   TWILIO_PHONE_NUMBER=+1234567890
+   USE_MOCK_SMS=false
+   ```
 
-```bash
-cp .env.example .env
-
-# Edit .env with your values:
-TWILIO_ACCOUNT_SID=your_account_sid
-TWILIO_AUTH_TOKEN=your_auth_token
-TWILIO_PHONE_NUMBER=+1234567890
-USE_MOCK_SMS=false  # Set to true for testing
-```
+4. **For development/testing** (no Twilio needed):
+   ```
+   USE_MOCK_SMS=true
+   ```
 
 ## Usage
 
-### Option 1: Using Mock SMS (Development/Testing)
+### Starting the Webhook Server
 
 ```bash
-# Set environment variable
-export USE_MOCK_SMS=true
-
-# Run webhook server
 python sms_webhook.py
+```
 
-# In another terminal, test:
+Server runs on `http://localhost:5000` by default.
+
+### Integrating with Your Application
+
+```python
+from job_completion_trigger import initialize, trigger_job_completed
+
+# Initialize once at startup
+initialize()
+
+# When a job completes, trigger the rating workflow
+result = trigger_job_completed(
+    job_id="JOB-12345",
+    user_phone="+1234567890",      # Customer's phone
+    operator_phone="+0987654321",   # Operator's phone
+    operator_id="OP-001"            # Operator's database ID
+)
+
+print(result)
+# Output: {"status": "success", "message": "Rating prompt sent", "request_id": "REQ-..."}
+```
+
+### Testing with Mock SMS
+
+For development without Twilio:
+
+```bash
+# Set USE_MOCK_SMS=true in .env
+python sms_webhook.py
+```
+
+#### Test Endpoints
+
+**1. Simulate Job Completion**
+```bash
 curl -X POST http://localhost:5000/test-job-complete \
   -H "Content-Type: application/json" \
   -d '{
     "job_id": "JOB-123",
-    "user_phone": "+1111111111",
-    "operator_phone": "+2222222222",
+    "user_phone": "+1234567890",
+    "operator_phone": "+0987654321",
     "operator_id": "OP-1"
   }'
+```
 
-# Test rating submission:
+**2. Simulate Rating Submission**
+```bash
 curl -X POST http://localhost:5000/test-rating \
   -H "Content-Type: application/json" \
   -d '{
-    "request_id": "REQ-JOB-123",
+    "request_id": "REQ-JOB-123-1234567890",
     "operator_id": "OP-1",
     "rating": 4
   }'
 ```
 
-### Option 2: Using Real Twilio (Production)
-
+**3. Get Operator Statistics**
 ```bash
-# Update .env with Twilio credentials
-export USE_MOCK_SMS=false
-
-# Run webhook server
-python sms_webhook.py
-
-# Deploy on public server with HTTPS
-# Update Twilio webhook URL to: https://your-domain.com/sms/webhook
+curl http://localhost:5000/stats/operators/OP-1
 ```
 
-### Option 3: Integrate with Your Code
-
-```python
-from job_completion_trigger import trigger_job_completed
-
-# In your job completion handler:
-def on_job_complete(job_id, customer_phone, operator_phone, operator_id):
-    # Your job logic here...
-    
-    # Trigger rating workflow
-    result = trigger_job_completed(
-        job_id=job_id,
-        user_phone=customer_phone,
-        operator_phone=operator_phone,
-        operator_id=operator_id
-    )
-    
-    if result.get("status") == "success":
-        print(f"Rating request sent: {result.get('request_id')}")
-    else:
-        print(f"Failed to send rating: {result.get('message')}")
+**4. Get Top Performers**
+```bash
+curl http://localhost:5000/stats/top-performers
 ```
 
-## API Endpoints
+**5. Get At-Risk Operators**
+```bash
+curl http://localhost:5000/stats/at-risk
+```
 
-### SMS Webhook
-**POST** `/sms/webhook`
-- Receives inbound SMS from Twilio
-- Required: From, Body, MessageSid
-- Optional: request_id, job_id, operator_id
+**6. View Mock Messages (testing only)**
+```bash
+curl http://localhost:5000/mock/sent-messages
+```
 
-### Test Job Completion
-**POST** `/test-job-complete`
+**7. Health Check**
+```bash
+curl http://localhost:5000/health
+```
+
+## API Reference
+
+### Webhook Endpoints
+
+#### POST `/sms/webhook`
+Twilio webhook endpoint for inbound SMS.
+
+**Expected Twilio form data:**
+- `From`: Sender's phone number
+- `Body`: Message text (rating 1-5)
+- `MessageSid`: Unique message ID
+
+**Response:**
+```json
+{
+  "status": "success",
+  "rating": 4,
+  "new_average": 3.75,
+  "transaction_count": 4,
+  "ban_applied": false
+}
+```
+
+#### POST `/test-job-complete`
+Test endpoint to simulate job completion.
+
+**Request Body:**
 ```json
 {
   "job_id": "JOB-123",
-  "user_phone": "+1111111111",
-  "operator_phone": "+2222222222",
+  "user_phone": "+1234567890",
+  "operator_phone": "+0987654321",
   "operator_id": "OP-1"
 }
 ```
 
-### Test Rating
-**POST** `/test-rating`
+#### POST `/test-rating`
+Test endpoint to submit a rating.
+
+**Request Body:**
 ```json
 {
-  "request_id": "REQ-123",
+  "request_id": "REQ-JOB-123-1234567890",
   "operator_id": "OP-1",
   "rating": 4
 }
 ```
 
-### Health Check
-**GET** `/health`
-Returns: `{"status": "healthy", "timestamp": "...", "service": "NBCCo Rating Handler"}`
+#### GET `/stats/operators/<operator_id>`
+Get statistics for an operator.
 
-### Get Operator Stats
-**GET** `/stats?operator_id=OP-1`
-Returns comprehensive operator statistics
+**Response:**
+```json
+{
+  "operator_id": "OP-1",
+  "name": "John Operator",
+  "phone_number": "+0987654321",
+  "status": "Active",
+  "average_rating": 4.5,
+  "total_ratings": 4,
+  "completed_transactions": 4,
+  "min_rating": 4,
+  "max_rating": 5,
+  "std_deviation": 0.5,
+  "blocked_from_queue": false,
+  "rating_breakdown": {"1": 0, "2": 0, "3": 0, "4": 2, "5": 2}
+}
+```
 
-### Get At-Risk Operators
-**GET** `/operators/at-risk`
-Returns operators below 3.0 average with >2 transactions
+#### GET `/stats/top-performers`
+Get top 10 performing operators.
+
+#### GET `/stats/at-risk`
+Get operators at risk of being banned.
+
+#### GET `/health`
+Health check endpoint.
+
+## Auto-Ban Logic
+
+Operators are automatically banned when:
+- **Average rating < 3.0 stars** AND
+- **More than 2 completed transactions**
+
+When an operator is banned:
+1. Account status updated to "Banned"
+2. Blocked from future job matching queue
+3. Notification SMS sent to operator
 
 ## Database Schema
 
-### operators
-- id (TEXT PRIMARY KEY)
-- name (TEXT)
-- phone_number (TEXT UNIQUE)
-- email (TEXT)
-- status (TEXT: 'Active' or 'Banned')
-- average_rating (REAL)
-- blocked_from_queue (BOOLEAN)
-- created_at, updated_at (TIMESTAMP)
+### Tables
 
-### jobs
-- id (TEXT PRIMARY KEY)
-- operator_id (FOREIGN KEY)
-- user_phone (TEXT)
-- operator_phone (TEXT)
-- status (TEXT: 'Pending', 'Completed')
-- completion_time (TIMESTAMP)
+**operators**
+- `id` (TEXT, PRIMARY KEY)
+- `name` (TEXT)
+- `phone_number` (TEXT, UNIQUE)
+- `email` (TEXT)
+- `status` (TEXT: 'Active', 'Banned')
+- `average_rating` (REAL)
+- `created_at` (TIMESTAMP)
+- `updated_at` (TIMESTAMP)
+- `blocked_from_queue` (BOOLEAN)
 
-### rating_requests
-- id (TEXT PRIMARY KEY)
-- job_id (FOREIGN KEY)
-- operator_id (FOREIGN KEY)
-- user_phone (TEXT)
-- status (TEXT: 'pending', 'completed')
-- created_at, completed_at (TIMESTAMP)
+**jobs**
+- `id` (TEXT, PRIMARY KEY)
+- `operator_id` (TEXT, FK)
+- `user_phone` (TEXT)
+- `operator_phone` (TEXT)
+- `status` (TEXT: 'Pending', 'Completed')
+- `completion_time` (TIMESTAMP)
+- `created_at` (TIMESTAMP)
 
-### ratings
-- id (INTEGER PRIMARY KEY)
-- request_id (FOREIGN KEY)
-- operator_id (FOREIGN KEY)
-- rating (INTEGER: 1-5)
-- feedback (TEXT)
-- timestamp (TIMESTAMP)
+**rating_requests**
+- `id` (TEXT, PRIMARY KEY)
+- `job_id` (TEXT, FK)
+- `operator_id` (TEXT, FK)
+- `user_phone` (TEXT)
+- `status` (TEXT: 'pending', 'completed')
+- `created_at` (TIMESTAMP)
+- `completed_at` (TIMESTAMP)
 
-## Ban Logic
+**ratings**
+- `id` (INTEGER, PRIMARY KEY)
+- `request_id` (TEXT, FK)
+- `operator_id` (TEXT, FK)
+- `rating` (INTEGER: 1-5)
+- `feedback` (TEXT)
+- `timestamp` (TIMESTAMP)
 
-An operator is automatically banned when:
+## Configuration
 
-```python
-IF average_rating < 3.0 AND total_transactions > 2:
-    status = "Banned"
-    blocked_from_queue = True
-    send_ban_notification()
+### Environment Variables
+
 ```
+# Twilio
+TWILIO_ACCOUNT_SID          Your Twilio account SID
+TWILIO_AUTH_TOKEN           Your Twilio auth token
+TWILIO_PHONE_NUMBER         Twilio phone number for sending SMS
 
-Example:
-- Operator completes 3 jobs with ratings: 2, 2, 3
-- Average: 2.33 (< 3.0)
-- Transactions: 3 (> 2)
-- **Result**: Operator is BANNED
+# SMS Service
+USE_MOCK_SMS                true/false - Use mock service for testing
+SKIP_TWILIO_VALIDATION      true/false - Skip signature validation (dev only)
 
-## Configuration Options
+# Database
+DB_PATH                     Path to SQLite database (default: nbcco_ratings.db)
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| TWILIO_ACCOUNT_SID | - | Twilio account identifier |
-| TWILIO_AUTH_TOKEN | - | Twilio authentication token |
-| TWILIO_PHONE_NUMBER | - | Twilio phone number for SMS |
-| USE_MOCK_SMS | true | Use mock service (development) |
-| SKIP_TWILIO_VALIDATION | false | Skip webhook signature validation |
-| DEBUG | false | Flask debug mode |
-| PORT | 5000 | Server port |
-| DATABASE_PATH | nbcco_ratings.db | SQLite database file |
+# Flask
+FLASK_DEBUG                 true/false - Enable debug mode
+PORT                        Port to run on (default: 5000)
+```
 
 ## Troubleshooting
 
-### SMS not sending
-- Check TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN
-- Ensure TWILIO_PHONE_NUMBER is valid
-- For testing, set USE_MOCK_SMS=true
+### "Missing Twilio credentials"
+- Set `USE_MOCK_SMS=true` in .env to use mock service
+- OR add real Twilio credentials to .env
 
-### Ratings not processing
-- Check database file exists (nbcco_ratings.db)
-- Verify operator_id is provided
-- Check logs for error messages
+### "No pending rating request found"
+- Ensure job completion was triggered first
+- Check that user_phone matches between job completion and rating submission
 
-### Webhook not receiving messages
-- Ensure server is publicly accessible
-- Update Twilio webhook URL
-- Verify SKIP_TWILIO_VALIDATION setting
-- Check Flask debug logs
+### "Invalid rating input"
+- User must reply with a number 1-5
+- No additional text or characters
 
-## Performance Metrics
+### Database Locked
+- Ensure only one instance of the application is running
+- SQLite doesn't handle concurrent writes well in production
 
-The system includes analytics via `rating_calculator.py`:
+## Production Considerations
+
+1. **Database**: Replace SQLite with PostgreSQL/MySQL for production
+2. **SMS Provider**: Configure real Twilio credentials
+3. **Webhooks**: Set up proper HTTPS and deploy to a public server
+4. **Security**: Validate Twilio signatures in production
+5. **Monitoring**: Add logging and monitoring
+6. **Scaling**: Use message queue (Redis/RabbitMQ) for high volume
+
+## Example Integration
 
 ```python
-from rating_calculator import RatingCalculator
+# main.py
+from flask import Flask
+from job_completion_trigger import initialize, trigger_job_completed
 
-calc = RatingCalculator(db_manager)
+app = Flask(__name__)
 
-# Get top performers
-top_10 = calc.get_top_performers(limit=10)
+# Initialize at startup
+@app.before_first_request
+def startup():
+    initialize(db_path="nbcco_ratings.db", use_mock_sms=False)
 
-# Get at-risk operators
-at_risk = calc.get_at_risk_operators(rating_threshold=3.0)
+# In your job completion handler
+@app.route("/jobs/<job_id>/complete", methods=["POST"])
+def complete_job(job_id):
+    # ... your job completion logic ...
+    
+    # Trigger rating workflow
+    result = trigger_job_completed(
+        job_id=job_id,
+        user_phone=request.json["user_phone"],
+        operator_phone=request.json["operator_phone"],
+        operator_id=request.json["operator_id"]
+    )
+    
+    return {"status": "ok", "rating_initiated": result["status"] == "success"}
 
-# Get performance score (0-100)
-score = calc.calculate_performance_score(operator_id)
-
-# Get recent trends
-trends = calc.get_recent_ratings(operator_id, days=7)
+if __name__ == "__main__":
+    app.run()
 ```
-
-## Production Deployment
-
-### Using Gunicorn
-```bash
-pip install gunicorn
-gunicorn -w 4 -b 0.0.0.0:5000 sms_webhook:app
-```
-
-### Using Docker
-```dockerfile
-FROM python:3.9
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-COPY . .
-CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:5000", "sms_webhook:app"]
-```
-
-### Environment Setup
-- Use environment variables for all secrets
-- Enable HTTPS for webhook URL
-- Set up database backups
-- Enable monitoring/logging to external service
-- Configure rate limiting
 
 ## License
 
-Proprietary - NBCCo
+MIT License - See LICENSE file for details
 
 ## Support
 
-For issues or questions, refer to the inline code documentation or contact the development team.
-````
+For issues or questions, please contact the development team.
